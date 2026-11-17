@@ -746,15 +746,42 @@ kbd {
   flex-wrap: wrap;
 }
 
-.hint {
-  font-size: 15px;
-  color: var(--ink-2);
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-  min-height: 1.5em;
+.tracker {
+  display: grid;
+  gap: 6px;
+  min-height: 2.4em;
 }
 
-.hint b { color: var(--ink); }
+.tracker-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.4;
+}
+
+.tw {
+  display: inline-flex;
+  padding: 1px 4px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.tw.done { background: var(--ok-soft); }
+.tw.stop { color: var(--ink-3); font-weight: 500; }
+.tw.extra { color: var(--bad); text-decoration: line-through; font-weight: 500; }
+.tl.ok { color: var(--ok); }
+.tl.bad { color: var(--bad); }
+.tl.hint { color: var(--ink); }
+.tl.blank { color: var(--ink-3); }
+
+.tracker-summary {
+  font-size: 14px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
 
 .options {
   display: grid;

@@ -119,7 +119,7 @@ const ACRONYMS = [
   { a: "MFA", e: "Multi-Factor Authentication", d: "Autenticación con dos o más factores: algo que sabes, tienes o eres.", c: "iam", t: "Autenticación", alt: ["Multifactor Authentication"] },
   { a: "2FA", e: "Two-Factor Authentication", d: "Autenticación con exactamente dos factores distintos.", c: "iam", t: "Autenticación", alt: ["Two Factor Authentication"] },
   { a: "SSO", e: "Single Sign-On", d: "Una sola autenticación da acceso a varias aplicaciones.", c: "iam", t: "Autenticación", alt: ["Single Sign On"] },
-  { a: "OTP", e: "One-Time Password", d: "Contraseña valida para un solo uso o un periodo corto.", c: "iam", t: "Autenticación", alt: ["One Time Password"] },
+  { a: "OTP", e: "One-Time Password", d: "Contraseña válida para un solo uso o un periodo corto.", c: "iam", t: "Autenticación", alt: ["One Time Password"] },
   { a: "TOTP", e: "Time-based One-Time Password", d: "OTP que cambia cada cierto tiempo; la usan apps como Google Authenticator.", c: "iam", t: "Autenticación", alt: ["Time based One Time Password"] },
   { a: "HOTP", e: "HMAC-based One-Time Password", d: "OTP basada en un contador y HMAC, definida en el RFC 4226.", c: "iam", t: "Autenticación", alt: ["HMAC based One Time Password"] },
   { a: "PIN", e: "Personal Identification Number", d: "Código numérico corto que sirve como factor de conocimiento.", c: "iam", t: "Autenticación" },

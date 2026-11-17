@@ -460,22 +460,98 @@
     renderPractice(false);
   }
 
-  function hintText(item, level, qmode) {
-    if (qmode === "reverse") {
-      const a = item.a;
-      if (level === 1) return a.length + " caracteres, empieza con " + a[0];
-      return a.slice(0, Math.ceil(a.length / 2)) + "_".repeat(a.length - Math.ceil(a.length / 2));
+  // Marcador en vivo: compara palabra por palabra y letra por letra lo escrito con la respuesta.
+
+  function hintMax(qmode) {
+    return qmode === "reverse" ? 2 : 5;
+  }
+
+  function splitWords(s) {
+    return stripAccents(String(s)).split(/[^A-Za-z0-9]+/).filter(Boolean);
+  }
+
+  function revealCount(len, level) {
+    const table = [0, 1, 2, 3, Math.ceil(len / 2), len - 1];
+    let r = 0;
+    for (let l = 1; l <= level && l < table.length; l++) r = Math.max(r, table[l]);
+    return Math.max(0, Math.min(len, r));
+  }
+
+  function expectedWords(item, qmode) {
+    return qmode === "reverse" ? [item.a.replace(/[^A-Za-z0-9]/g, "")] : splitWords(item.e);
+  }
+
+  function renderWord(ew, uw, reveal, showBlanks) {
+    let html = "";
+    let complete = uw !== null && uw.length === ew.length;
+    const len = Math.max(ew.length, uw === null ? 0 : uw.length);
+    for (let j = 0; j < len; j++) {
+      if (uw !== null && j < uw.length) {
+        const ok = j < ew.length && uw[j].toLowerCase() === ew[j].toLowerCase();
+        if (!ok) complete = false;
+        html += '<span class="tl ' + (ok ? "ok" : "bad") + '">' + esc(uw[j]) + "</span>";
+      } else if (j < reveal) {
+        html += '<span class="tl hint">' + esc(ew[j]) + "</span>";
+      } else if (showBlanks) {
+        html += '<span class="tl blank">_</span>';
+      }
     }
-    const words = item.e.split(/\s+/);
-    const n = level === 1 ? 1 : 2;
-    return words
-      .map((w) => {
-        const letters = w.replace(/[^A-Za-z0-9]/g, "");
-        if (!letters) return w;
-        const shown = w.slice(0, Math.min(n, w.length));
-        return "<b>" + esc(shown) + "</b>" + "_".repeat(Math.max(0, letters.length - shown.length));
-      })
-      .join(" ");
+    return { html: html, complete: complete };
+  }
+
+  function trackerHtml(item, typed, level, qmode) {
+    const exp = expectedWords(item, qmode);
+    const usr = qmode === "reverse" ? [typed.replace(/[^A-Za-z0-9]/g, "")].filter(Boolean) : splitWords(typed);
+    const withHint = level > 0;
+    let u = 0;
+    let okWords = 0;
+    let parts = "";
+    for (let i = 0; i < exp.length; i++) {
+      const ew = exp[i];
+      const isStop = STOPWORDS.has(ew.toLowerCase());
+      let uw = u < usr.length ? usr[u] : null;
+      while (uw !== null && STOPWORDS.has(uw.toLowerCase()) && uw.toLowerCase() !== ew.toLowerCase() && !isStop) {
+        u++;
+        uw = u < usr.length ? usr[u] : null;
+      }
+      const matchesStop = isStop && uw !== null && uw.toLowerCase() === ew.toLowerCase();
+      if (isStop && !matchesStop) {
+        if (withHint || u < usr.length) parts += '<span class="tw stop">' + esc(ew) + "</span>";
+        continue;
+      }
+      if (uw === null) {
+        if (withHint) parts += '<span class="tw">' + renderWord(ew, null, revealCount(ew.length, level), true).html + "</span>";
+        continue;
+      }
+      const r = renderWord(ew, uw, revealCount(ew.length, level), withHint);
+      if (r.complete && !isStop) okWords++;
+      parts += '<span class="tw' + (r.complete ? " done" : "") + (isStop ? " stop" : "") + '">' + r.html + "</span>";
+      u++;
+    }
+    for (; u < usr.length; u++) {
+      parts += '<span class="tw extra">' + esc(usr[u]) + "</span>";
+    }
+    const total = exp.filter((w) => !STOPWORDS.has(w.toLowerCase())).length;
+    let summary = "";
+    if (okWords >= total && usr.length) summary = "Todo coincide, pulsa Enter";
+    else if (withHint) summary = okWords + " de " + total + (total === 1 ? " palabra" : " palabras");
+    else if (usr.length) summary = plural(okWords, "palabra bien", "palabras bien");
+    else summary = "Escribe y verás cómo vas";
+    return '<div class="tracker-words">' + parts + '</div><div class="tracker-summary">' + summary + "</div>";
+  }
+
+  function updateTracker() {
+    const cur = state.session && state.session.current;
+    const box = app.querySelector("[data-tracker]");
+    const input = app.querySelector(".answer-input");
+    if (!cur || !box || !input) return;
+    box.innerHTML = trackerHtml(cur.item, input.value, cur.hintLevel, cur.qmode);
+  }
+
+  function hintButtonLabel(cur) {
+    const max = hintMax(cur.qmode);
+    if (cur.hintLevel >= max) return "Sin más pistas";
+    return cur.hintLevel === 0 ? "Pista" : "Pista " + (cur.hintLevel + 1) + " de " + max;
   }
 
   // Render: configuracion
@@ -699,9 +775,10 @@
           '<form class="answer-form" data-answer-form autocomplete="off"><div class="answer-row">' +
           '<input class="answer-input" type="text" name="answer" placeholder="' + placeholder + '" aria-label="' + placeholder + '" autocomplete="off" autocapitalize="off" spellcheck="false">' +
           '<button type="submit" class="btn btn-primary">Comprobar</button></div>' +
-          '<div class="answer-tools"><div class="hint" aria-live="polite">' + (cur.hintLevel ? hintText(item, cur.hintLevel, cur.qmode) : "") + "</div>" +
-          '<button type="button" class="btn btn-ghost" data-hint' + (cur.hintLevel >= 2 ? " disabled" : "") + ">" + iconSvg("bulb") +
-          (cur.hintLevel === 0 ? "Pista" : cur.hintLevel === 1 ? "Otra pista" : "Sin más pistas") + "</button></div></form>";
+          '<div class="tracker" data-tracker aria-live="polite">' + trackerHtml(item, "", cur.hintLevel, cur.qmode) + "</div>" +
+          '<div class="answer-tools"><span class="small muted">' + (cur.qmode === "reverse" ? "Verde: letra correcta. Rojo: no coincide." : "Verde: letra correcta. Rojo: no coincide. La pista abre los huecos.") + "</span>" +
+          '<button type="button" class="btn btn-ghost" data-hint' + (cur.hintLevel >= hintMax(cur.qmode) ? " disabled" : "") + ">" + iconSvg("bulb") +
+          hintButtonLabel(cur) + "</button></div></form>";
       }
     } else {
       const r = cur.result;
@@ -799,14 +876,13 @@
 
   function useHint() {
     const cur = state.session && state.session.current;
-    if (!cur || cur.answered || cur.qmode === "choice" || cur.hintLevel >= 2) return;
+    if (!cur || cur.answered || cur.qmode === "choice" || cur.hintLevel >= hintMax(cur.qmode)) return;
     cur.hintLevel += 1;
-    const hint = app.querySelector(".hint");
-    if (hint) hint.innerHTML = hintText(cur.item, cur.hintLevel, cur.qmode);
+    updateTracker();
     const btn = app.querySelector("[data-hint]");
     if (btn) {
-      btn.innerHTML = iconSvg("bulb") + (cur.hintLevel === 1 ? "Otra pista" : "Sin más pistas");
-      if (cur.hintLevel >= 2) btn.disabled = true;
+      btn.innerHTML = iconSvg("bulb") + hintButtonLabel(cur);
+      if (cur.hintLevel >= hintMax(cur.qmode)) btn.disabled = true;
     }
     const input = app.querySelector(".answer-input");
     if (input) input.focus();
@@ -1157,6 +1233,7 @@
 
   app.addEventListener("input", (e) => {
     if (state.view === "glossary") onGlossaryInput(e);
+    else if (state.view === "practice" && e.target.classList.contains("answer-input")) updateTracker();
   });
 
   document.addEventListener("keydown", (e) => {
