@@ -599,6 +599,17 @@ kbd {
   transition: width 240ms ease;
 }
 
+.progress-track.infinite .progress-fill {
+  width: 30%;
+  background: var(--accent);
+  animation: infinite-slide 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes infinite-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(233%); }
+}
+
 .stage {
   position: relative;
   border-radius: var(--radius-lg);

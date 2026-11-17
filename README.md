@@ -12,7 +12,7 @@ Página para practicar los acrónimos de ciberseguridad. Muestra las siglas y pi
 ## Funciones
 
 - Filtro por categorías y por temas dentro de cada categoría.
-- Número de preguntas y tiempo opcional por pregunta.
+- Número de preguntas, modo infinito que sigue hasta que termines, y tiempo opcional por pregunta.
 - Pistas progresivas en los modos de escritura.
 - Prioridad para los acrónimos fallados o nunca vistos.
 - Resumen al final de cada sesión con repaso de los fallos.

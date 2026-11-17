@@ -15,7 +15,8 @@
     { id: "mixed", name: "Mixto", desc: "Las tres dinámicas mezcladas al azar." }
   ];
   const MODE_BY_ID = Object.fromEntries(MODES.map((m) => [m.id, m]));
-  const COUNT_OPTIONS = [10, 20, 40, 0];
+  const COUNT_OPTIONS = [10, 20, 40, 0, -1];
+  const INFINITE_BATCH = 20;
   const TIMER_OPTIONS = [0, 10, 20, 30];
   const STOPWORDS = new Set(["and", "of", "the", "for", "to", "in", "on", "a", "an", "y", "de", "del", "la", "el", "los", "las", "en", "por", "con"]);
 
@@ -279,16 +280,28 @@
   }
 
   function buildQueue(pool, count, prioritize) {
-    const n = count === 0 ? pool.length : Math.min(count, pool.length);
+    const n = count === 0 ? pool.length : count === -1 ? Math.min(INFINITE_BATCH, pool.length) : Math.min(count, pool.length);
     if (prioritize) return weightedSample(pool, n, selectionWeight);
     return shuffle(pool).slice(0, n);
   }
 
+  // En modo infinito se anaden tandas nuevas evitando repetir lo recien preguntado.
+  function extendQueue(session) {
+    const pool = currentPool();
+    if (!pool.length) return;
+    const recent = new Set(session.queue.slice(-Math.min(5, Math.max(0, pool.length - 1))).map((it) => it.id));
+    const candidates = pool.filter((it) => !recent.has(it.id));
+    const source = candidates.length ? candidates : pool;
+    const batch = buildQueue(source, -1, state.config.prioritize);
+    session.queue = session.queue.concat(batch);
+  }
+
   // Sesion
 
-  function startSession(queue, modeId) {
+  function startSession(queue, modeId, infinite) {
     state.session = {
       mode: modeId,
+      infinite: !!infinite,
       queue: queue,
       i: 0,
       results: [],
@@ -434,10 +447,13 @@
     const s = state.session;
     if (!s || !s.current || !s.current.answered) return;
     if (s.i + 1 >= s.queue.length) {
-      s.finishedAt = Date.now();
-      state.view = "results";
-      render();
-      return;
+      if (s.infinite) extendQueue(s);
+      if (s.i + 1 >= s.queue.length) {
+        s.finishedAt = Date.now();
+        state.view = "results";
+        render();
+        return;
+      }
     }
     s.i += 1;
     prepareQuestion();
@@ -516,7 +532,7 @@
       .join("");
 
     const countSeg = COUNT_OPTIONS.map((n) =>
-      '<button type="button" data-count="' + n + '" aria-pressed="' + (cfg.count === n) + '">' + (n === 0 ? "Todos" : n) + "</button>"
+      '<button type="button" data-count="' + n + '" aria-pressed="' + (cfg.count === n) + '">' + (n === 0 ? "Todos" : n === -1 ? "Infinito" : n) + "</button>"
     ).join("");
     const timerSeg = TIMER_OPTIONS.map((n) =>
       '<button type="button" data-timer-opt="' + n + '" aria-pressed="' + (cfg.timer === n) + '">' + (n === 0 ? "Sin límite" : n + " s") + "</button>"
@@ -524,6 +540,7 @@
 
     const effective = cfg.count === 0 ? pool.length : Math.min(cfg.count, pool.length);
     const modeName = MODE_BY_ID[cfg.mode].name;
+    const summary = cfg.count === -1 ? "Infinito, " + pool.length + " acrónimos en rotación" : effective + " de " + pool.length + " acrónimos";
 
     app.innerHTML =
       '<div class="setup">' +
@@ -540,14 +557,14 @@
       "</section>" +
       '<section class="section" aria-labelledby="h-settings"><div class="section-head"><h2 id="h-settings">Sesión</h2></div><div class="settings-grid">' +
       '<div class="setting"><span class="setting-label">Preguntas</span><div class="segmented" role="group" aria-label="Número de preguntas">' + countSeg + "</div>" +
-      '<span class="setting-help">Si el banco elegido tiene menos, se usan todas.</span></div>' +
+      '<span class="setting-help">' + (cfg.count === -1 ? "Siguen saliendo acrónimos hasta que termines la sesión." : "Si el banco elegido tiene menos, se usan todas.") + "</span></div>" +
       '<div class="setting"><span class="setting-label">Tiempo por pregunta</span><div class="segmented" role="group" aria-label="Tiempo por pregunta">' + timerSeg + "</div>" +
       '<span class="setting-help">Al agotarse cuenta como fallo y se muestra la respuesta.</span></div>' +
       '<div class="setting"><span class="setting-label">Orden</span><button type="button" class="switch" role="switch" aria-checked="' + cfg.prioritize + '" data-prioritize>' +
       '<span class="switch-track"></span><span>Priorizar lo que fallo y lo nuevo</span></button>' +
       '<span class="setting-help">Usa tu historial para que salgan más seguido los acrónimos que fallas o que no has visto.</span></div>' +
       "</div></section>" +
-      '<div class="start-bar"><div class="summary"><strong>' + effective + " de " + pool.length + " acrónimos</strong><span>" + esc(modeName) +
+      '<div class="start-bar"><div class="summary"><strong>' + summary + "</strong><span>" + esc(modeName) +
       (cfg.timer ? ", " + cfg.timer + " s por pregunta" : "") + "</span></div>" +
       '<button type="button" class="btn btn-primary btn-lg" data-start' + (pool.length ? "" : " disabled") + ">Empezar</button></div>" +
       "</div>";
@@ -637,7 +654,7 @@
     if (t.closest("[data-start]")) {
       const pool = currentPool();
       if (!pool.length) return;
-      startSession(buildQueue(pool, cfg.count, cfg.prioritize), cfg.mode);
+      startSession(buildQueue(pool, cfg.count, cfg.prioritize), cfg.mode, cfg.count === -1);
     }
   }
 
@@ -650,8 +667,9 @@
     const cat = CAT_BY_ID[item.c];
     const total = s.queue.length;
     const done = s.i + (cur.answered ? 1 : 0);
-    const pct = Math.round((done / total) * 100);
+    const pct = s.infinite ? 100 : Math.round((done / total) * 100);
     const correctSoFar = s.results.filter((r) => r.correct).length;
+    const counter = s.infinite ? "Pregunta " + (s.i + 1) : (s.i + 1) + " de " + total;
 
     let body = "";
     if (cur.qmode === "reverse") {
@@ -716,7 +734,7 @@
         '<p class="feedback-answer">' + esc(item.a) + " significa " + esc(item.e) + "</p>" +
         '<p class="feedback-desc">' + esc(item.d) + "</p>" + yours + "</div></div>" +
         '<div class="stage-foot"><div class="keys"><span><kbd>Enter</kbd> siguiente</span></div>' +
-        '<button type="button" class="btn btn-primary" data-next autofocus>' + (s.i + 1 >= total ? "Ver resultados" : "Siguiente") + "</button></div>";
+        '<button type="button" class="btn btn-primary" data-next autofocus>' + (!s.infinite && s.i + 1 >= total ? "Ver resultados" : "Siguiente") + "</button></div>";
     }
 
     const keysHelp = cur.answered
@@ -728,13 +746,15 @@
     app.innerHTML =
       '<div class="practice">' +
       '<div class="practice-top"><div class="practice-meta"><div class="stats">' +
-      '<span class="stat">' + (s.i + 1) + " de " + total + "</span>" +
+      '<span class="stat">' + counter + "</span>" +
       '<span class="stat">' + iconSvg("check") + correctSoFar + "</span>" +
       '<span class="stat' + (s.streak >= 3 ? " streak-hot" : "") + '">' + iconSvg("flame") + s.streak + "</span>" +
       (state.config.timer ? '<span class="stat' + (cur.remaining <= 5 ? " timer-low" : "") + '">' + iconSvg("clock") + "<span data-timer>" + cur.remaining + " s</span></span>" : "") +
       "</div>" +
-      '<button type="button" class="btn btn-ghost" data-quit>' + iconSvg("back") + "Salir</button></div>" +
-      '<div class="progress-track" role="progressbar" aria-valuenow="' + done + '" aria-valuemin="0" aria-valuemax="' + total + '"><div class="progress-fill" style="width:' + pct + '%"></div></div></div>' +
+      '<button type="button" class="btn btn-ghost" data-quit>' + iconSvg("back") + (s.infinite ? "Terminar" : "Salir") + "</button></div>" +
+      (s.infinite
+        ? '<div class="progress-track infinite" aria-hidden="true"><div class="progress-fill"></div></div></div>'
+        : '<div class="progress-track" role="progressbar" aria-valuenow="' + done + '" aria-valuemin="0" aria-valuemax="' + total + '"><div class="progress-fill" style="width:' + pct + '%"></div></div></div>') +
       '<div class="stage" style="--cat:' + cat.color + '"><div class="stage-body">' +
       catChip(cat, item.t) + body + answerArea + keysHelp +
       "</div></div></div>";
@@ -794,6 +814,13 @@
 
   function quitSession() {
     const s = state.session;
+    if (s && s.infinite && s.results.length) {
+      clearTimer();
+      s.finishedAt = Date.now();
+      state.view = "results";
+      render();
+      return;
+    }
     if (s && s.results.length && s.results.length < s.queue.length) {
       if (!window.confirm("¿Salir de la práctica? Se perderá el resumen de esta sesión, pero tu progreso ya quedó guardado.")) return;
     }
@@ -879,7 +906,7 @@
 
     app.innerHTML =
       '<div class="results"><div class="results-head"><h1>' + headline + "</h1>" +
-      '<p class="muted">' + correct + " de " + total + " en modo " + esc(MODE_BY_ID[s.mode].name).toLowerCase() + ".</p></div>" +
+      '<p class="muted">' + correct + " de " + total + " en modo " + esc(MODE_BY_ID[s.mode].name).toLowerCase() + (s.infinite ? ", sesión infinita" : "") + ".</p></div>" +
       '<div class="score-strip" aria-label="Resultado por pregunta">' + strip + "</div>" +
       '<div class="results-figures">' +
       '<div class="figure"><strong>' + pct + " %</strong><span>precisión</span></div>" +
@@ -889,7 +916,7 @@
       "</div>" +
       '<div class="results-actions">' +
       (wrong.length ? '<button type="button" class="btn btn-primary" data-retry-wrong>Repasar los fallos</button>' : "") +
-      '<button type="button" class="btn' + (wrong.length ? "" : " btn-primary") + '" data-repeat>Repetir con otras preguntas</button>' +
+      '<button type="button" class="btn' + (wrong.length ? "" : " btn-primary") + '" data-repeat>' + (s.infinite ? "Otra sesión infinita" : "Repetir con otras preguntas") + "</button>" +
       '<button type="button" class="btn btn-ghost" data-nav="setup">Cambiar configuración</button>' +
       "</div>" + review + "</div>";
   }
@@ -899,12 +926,12 @@
     const s = state.session;
     if (t.closest("[data-retry-wrong]")) {
       const wrongItems = s.results.filter((r) => !r.correct).map((r) => r.item);
-      startSession(shuffle(wrongItems), s.mode);
+      startSession(shuffle(wrongItems), s.mode, false);
       return;
     }
     if (t.closest("[data-repeat]")) {
       const pool = currentPool();
-      startSession(buildQueue(pool, state.config.count, state.config.prioritize), s.mode);
+      startSession(buildQueue(pool, state.config.count, state.config.prioritize), s.mode, state.config.count === -1);
     }
   }
 
@@ -1064,7 +1091,7 @@
       const weak = ITEMS.filter((it) => statsOf(it).fail > 0)
         .sort((a, b) => statsOf(b).fail - statsOf(b).ok - (statsOf(a).fail - statsOf(a).ok))
         .slice(0, 20);
-      if (weak.length) startSession(shuffle(weak), state.config.mode === "mixed" ? "mixed" : state.config.mode);
+      if (weak.length) startSession(shuffle(weak), state.config.mode, false);
       return;
     }
     if (t.closest("[data-reset-progress]")) {
